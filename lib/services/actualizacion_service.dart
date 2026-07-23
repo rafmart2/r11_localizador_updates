@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:dio/dio.dart';
-import 'package:open_file_plus/open_file_plus.dart'; 
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ActualizacionService {
   // Enlace directo al archivo JSON raw que tienes en tu cuenta de GitHub
@@ -93,11 +93,13 @@ class ActualizacionService {
                       });
 
                       try {
-                        // 1. Buscamos la ruta interna de descargas seguras del teléfono
-                        final Directory carpetaDescargas = await getTemporaryDirectory();
+                        // 1. Buscamos la ruta de la carpeta pública de descargas del teléfono
+                        final Directory? carpetaDescargas = await getExternalStorageDirectory();
+                        if (carpetaDescargas == null) throw Exception("Almacenamiento no accesible");
+                        
                         final String rutaDestinoApk = '${carpetaDescargas.path}/r11_localizador_v$nuevaVersion.apk';
 
-                        // 2. Descarga progresiva de alto rendimiento con Dio (0% a 100%)
+                        // 2. Descarga progresiva de alto rendimiento con Dio
                         final Dio dio = Dio();
                         await dio.download(
                           urlApk,
@@ -111,15 +113,25 @@ class ActualizacionService {
                           },
                         );
 
-                        // 3. Ejecución e instalación nativa del APK descargado
                         if (context.mounted) {
-                          Navigator.pop(context); 
+                          Navigator.pop(context); // Cerramos el modal flotante
                         }
-                        await OpenFile.open(rutaDestinoApk);
+
+                        // 3. INSTALACIÓN DIRECTA SIN PLUGINS EXTERNOS COMPLEJOS
+                        // Usamos url_launcher para invocar al gestor de archivos nativo del móvil
+                        final Uri uriInstalador = Uri.file(rutaDestinoApk);
+                        if (await canLaunchUrl(uriInstalador)) {
+                          await launchUrl(uriInstalador, mode: LaunchMode.externalApplication);
+                        } else {
+                          // Si falla el enlace directo de archivo, abrimos la URL de descarga directa de GitHub en el navegador como salvavidas
+                          await launchUrl(Uri.parse(urlApk), mode: LaunchMode.externalApplication);
+                        }
                       } catch (e) {
                         if (context.mounted) {
                           Navigator.pop(context);
                         }
+                        // Salvavidas absoluto: si el guardado en disco falla, forzamos la descarga web
+                        await launchUrl(Uri.parse(urlApk), mode: LaunchMode.externalApplication);
                       }
                     },
                     child: const Text('Actualizar Ya', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
