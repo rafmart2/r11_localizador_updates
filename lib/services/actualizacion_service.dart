@@ -1,21 +1,22 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:ota_update/ota_update.dart';
+import 'package:dio/dio.dart';
+import 'package:open_file_plus/open_file_plus.dart'; 
+import 'package:path_provider/path_provider.dart';
 
 class ActualizacionService {
-  // Enlace directo al archivo JSON raw que subirás a la raíz de tu repositorio de GitHub
+  // Enlace directo al archivo JSON raw que tienes en tu cuenta de GitHub
   static const String _urlJsonVersion = 'https://githubusercontent.com';
 
-  /// Comprueba si hay una actualización disponible y gestiona la descarga nativa
+  /// Comprueba si hay una actualización disponible en GitHub
   static Future<void> comprobarActualizacion(BuildContext context) async {
     try {
-      // 1. Leemos los datos de la compilación interna que tiene el móvil instalado hoy
       final PackageInfo infoLocal = await PackageInfo.fromPlatform();
       final int buildLocal = int.tryParse(infoLocal.buildNumber) ?? 1;
 
-      // 2. Consultamos el archivo de control que has subido a tu cuenta de GitHub
       final respuestaHttp = await http.get(Uri.parse(_urlJsonVersion)).timeout(
         const Duration(seconds: 5),
       );
@@ -26,26 +27,20 @@ class ActualizacionService {
         final String versionNuevaNombre = jsonRemoto['version'] ?? '0.0.0';
         final String urlDescargaApk = jsonRemoto['url'] ?? '';
 
-        // COMPARACIÓN MATEMÁTICA: Si el código de internet es mayor, se activa la alerta
         if (buildRemoto > buildLocal && urlDescargaApk.isNotEmpty) {
-          // GUARDIÁN CONTRA ASINCRONÍAS: Si la pantalla se destruyó durante la espera, abortamos
-          if (!context.mounted) {
-            return;
-          }
-
-          // Lanzamos el cuadro de diálogo emergente de forma 100% segura
+          if (!context.mounted) return;
           _mostrarVentanaEmergenciaActualizacion(context, versionNuevaNombre, urlDescargaApk);
         }
       }
     } catch (e) {
-      debugPrint('Error silencioso en el motor de autoactualización de GitHub: ${e.toString()}');
+      debugPrint('Error silencioso en el motor de autoactualización: ${e.toString()}');
     }
   }
 
   static void _mostrarVentanaEmergenciaActualizacion(BuildContext context, String nuevaVersion, String urlApk) {
     showDialog(
       context: context,
-      barrierDismissible: false, // Obliga al usuario a interactuar para mantener la flota al día
+      barrierDismissible: false, 
       builder: (context) {
         double progresoDescarga = 0.0;
         bool descargando = false;
@@ -65,7 +60,7 @@ class ActualizacionService {
                 children: [
                   Text(
                     descargando 
-                        ? 'Descargando el nuevo instalador de Adif desde GitHub... Por favor, no cierres la aplicación.' 
+                        ? 'Descargando el instalador optimizado desde GitHub... Por favor, no cierres la aplicación.' 
                         : 'Se ha detectado una versión del localizador más reciente con mejoras en el motor de paradas en tiempo real de Girona.',
                     style: const TextStyle(color: Colors.white70, fontSize: 12.5),
                   ),
@@ -92,34 +87,39 @@ class ActualizacionService {
                   ),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
-                    onPressed: () {
+                    onPressed: () async {
                       setDialogState(() {
                         descargando = true;
                       });
 
-                      // INVOCACIÓN DEL PAQUETE OTA_UPDATE NATIVO DE ANDROID
                       try {
-                        OtaUpdate().execute(urlApk, destinationFilename: 'r11_localizador.apk').listen(
-                          (OtaEvent evento) {
-                            setDialogState(() {
-                              if (evento.status == OtaStatus.DOWNLOADING) {
-                                // Convertimos el string de progreso (0 a 100) a un gradiente de 0.0 a 1.0 para la barra
-                                progresoDescarga = (double.tryParse(evento.value ?? '0') ?? 0.0) / 100.0;
-                              } else if (evento.status == OtaStatus.INSTALLING) {
-                                if (context.mounted) {
-                                  Navigator.pop(context); // Cerramos el diálogo de forma segura
-                                }
-                              }
-                            });
-                          },
-                          onError: (error) {
-                            if (context.mounted) {
-                              Navigator.pop(context);
+                        // 1. Buscamos la ruta interna de descargas seguras del teléfono
+                        final Directory carpetaDescargas = await getTemporaryDirectory();
+                        final String rutaDestinoApk = '${carpetaDescargas.path}/r11_localizador_v$nuevaVersion.apk';
+
+                        // 2. Descarga progresiva de alto rendimiento con Dio (0% a 100%)
+                        final Dio dio = Dio();
+                        await dio.download(
+                          urlApk,
+                          rutaDestinoApk,
+                          onReceiveProgress: (recibido, total) {
+                            if (total != -1) {
+                              setDialogState(() {
+                                progresoDescarga = recibido / total;
+                              });
                             }
                           },
                         );
+
+                        // 3. Ejecución e instalación nativa del APK descargado
+                        if (context.mounted) {
+                          Navigator.pop(context); 
+                        }
+                        await OpenFile.open(rutaDestinoApk);
                       } catch (e) {
-                        Navigator.pop(context);
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                        }
                       }
                     },
                     child: const Text('Actualizar Ya', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
