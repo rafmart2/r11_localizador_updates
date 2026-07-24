@@ -9,8 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 class ActualizacionService {
   // Enlace directo al archivo JSON raw que tienes en tu cuenta de GitHub
-  static const String _urlJsonVersion = 'https://githubusercontent.com';
-
+static const String _urlJsonVersion = 'https://raw.githubusercontent.com/rafmart2/r11_localizador_updates/main/version.json';
   /// Comprueba si hay una actualización disponible en GitHub
   static Future<void> comprobarActualizacion(BuildContext context) async {
     try {

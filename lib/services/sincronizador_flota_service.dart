@@ -1,7 +1,9 @@
 import '../models/tren_model.dart';
 import '../models/incidencia_model.dart';
+import '../models/estacion_model.dart';
 import 'tren_service.dart';
 import 'incidencias_service.dart';
+import 'linea_service.dart';
 
 /// Clase contenedora que encapsula la respuesta unificada y purificada de la red
 class ResultadoSincronizacion {
@@ -9,30 +11,38 @@ class ResultadoSincronizacion {
   final String estadoConexion;
   final List<Tren> trenes;
   final Incidencia? incidencia;
+  final List<Estacion> estaciones;
 
   ResultadoSincronizacion({
     required this.esExitoso,
     required this.estadoConexion,
     required this.trenes,
     this.incidencia,
+    this.estaciones = const [],
   });
 }
 
 class SincronizadorFlotaService {
   final TrenService _trenService = TrenService();
   final IncidenciasService _incidenciasService = IncidenciasService();
+  final LineaService _lineaService = LineaService();
 
   /// El núcleo del orquestador: Descarga y fusiona ambos feeds en el mismo milisegundo de red
   Future<ResultadoSincronizacion> ejecutarSincronizacionCombinada(Set<String> idsEstaciones) async {
     try {
+      // Cargamos estaciones
+      final estacionesFuture = _lineaService.cargarEstaciones();
+
       // Disparamos ambas peticiones HTTP de producción de forma simultánea en hilos concurrentes
       final List<dynamic> respuestas = await Future.wait([
         _trenService.consultarTrenesActivos(idsEstaciones),
         _incidenciasService.consultarIncidenciasR11(),
       ]);
 
+      // Obtenemos las estaciones
+      final estaciones = await estacionesFuture;
+
       // SOLUCIÓN AL BLOQUEO DE OBJECT: Desempaquetamos la primera posición (Trenes) 
-      // usando un tipo dinámico para poder leer sus propiedades internas libres del Linter.
       final dynamic respuestaTrenes = respuestas[0];
       
       // Desempaquetamos la segunda posición (Incidencias) casteando su estructura de forma segura.
@@ -57,6 +67,7 @@ class SincronizadorFlotaService {
         estadoConexion: respuestaTrenes?.estadoConexion ?? 'Vías Libres',
         trenes: trenesFiltrados,
         incidencia: avisoObjeto,
+        estaciones: estaciones,
       );
     } catch (e) {
       return ResultadoSincronizacion(
@@ -64,6 +75,7 @@ class SincronizadorFlotaService {
         estadoConexion: 'Fallo crítico en el orquestador de red: ${e.toString()}',
         trenes: [],
         incidencia: null,
+        estaciones: [],
       );
     }
   }

@@ -5,9 +5,9 @@ import '../models/estacion_model.dart';
 import '../models/tren_model.dart';
 import '../models/incidencia_model.dart';
 import '../services/linea_service.dart';
-import '../services/tren_service.dart'; // Importante para acceder a la caché de red del servicio
+import '../services/tren_service.dart';
 import '../services/geometria_ferroviaria.dart'; 
-import '../services/sincronizador_flota_service.dart'; // Importación unificada del orquestador externo
+import '../services/sincronizador_flota_service.dart';
 import '../services/actualizacion_service.dart';
 import 'linea_painter.dart';
 import 'trenes_painter.dart';
@@ -23,7 +23,7 @@ class PantallaLineaAjustada extends StatefulWidget {
   State<PantallaLineaAjustada> createState() => _PantallaLineaAjustadaState();
 }
 
-class _PantallaLineaAjustadaState extends State<PantallaLineaAjustada> {
+class _PantallaLineaAjustadaState extends State<PantallaLineaAjustada> with WidgetsBindingObserver {
   final LineaService _lineaService = LineaService();
   final SincronizadorFlotaService _sincronizadorService = SincronizadorFlotaService();
   
@@ -33,7 +33,7 @@ class _PantallaLineaAjustadaState extends State<PantallaLineaAjustada> {
   bool _estadoRedExitoso = true;
   String _mensajeErrorRedDetallado = "Sin errores de enlace reportados.";
   
-  Timer? _relojSincronizacionMaestro; // Un solo temporizador cíclico para toda la red
+  Timer? _relojSincronizacionMaestro;
   
   Set<String> _idsEstacionesR11 = {};
   List<Tren> _trenesActivos = [];
@@ -47,22 +47,21 @@ class _PantallaLineaAjustadaState extends State<PantallaLineaAjustada> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    
     _futureEstaciones = _lineaService.cargarEstaciones().then((estaciones) {
       _listaEstacionesEstatica = estaciones;
       _idsEstacionesR11 = estaciones.map((e) => e.id).toSet();
       
-      // =======================================================================
-      // DISPARADOR DE AUTOACTUALIZACIÓN SILENCIOSO DESDE GITHUB
-      // =======================================================================
-      // Comprueba si has subido un APK nuevo a internet nada más abrir la app
+      // Disparador de autoactualización
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ActualizacionService.comprobarActualizacion(context);
       });
 
-      // Invocamos la descarga unificada inicial al arrancar la app en frío
+      // Descarga inicial
       _dispararConsultaRedSincronizada();
       
-      // Lanzamos el bucle de refresco coordinado cada 25 segundos estrictos
+      // Bucle de refresco cada 25 segundos
       _relojSincronizacionMaestro = Timer.periodic(const Duration(seconds: 25), (_) {
         _dispararConsultaRedSincronizada();
       });
@@ -73,11 +72,21 @@ class _PantallaLineaAjustadaState extends State<PantallaLineaAjustada> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _relojSincronizacionMaestro?.cancel();
     super.dispose();
   }
 
-  /// Función limpia de apoyo que invoca al orquestador externo y actualiza el estado visual de Flutter
+  /// Observa los cambios de ciclo de vida de la app
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // App volvió a foreground - sincroniza inmediatamente
+      _dispararConsultaRedSincronizada();
+    }
+  }
+
+  /// Función que invoca al orquestador externo y actualiza el estado visual
   Future<void> _dispararConsultaRedSincronizada() async {
     if (_idsEstacionesR11.isEmpty) {
       return;
@@ -127,20 +136,20 @@ class _PantallaLineaAjustadaState extends State<PantallaLineaAjustada> {
         if ((posicionToque.dy - trenYTeorico).abs() <= 18.0) {
           final String tripKey = tren.id.contains('-') ? tren.id.split('-').last : tren.id;
           
-          // Recuperamos el mapa de actualizaciones comerciales indexado en tu TrenService
+          // Recuperamos el mapa de actualizaciones comerciales
           Map<String, dynamic>? nodoComercialAdifReal;
           if (TrenService.mapaTripUpdatesUltimoCiclo.containsKey(tripKey)) {
             nodoComercialAdifReal = TrenService.mapaTripUpdatesUltimoCiclo[tripKey];
           }
 
-          // Abrimos el modal inyectando de forma obligatoria el árbol de paradas de Adif
+          // Abrimos el modal
           TrenDetalleModal.mostrar(
             context: context,
             tren: tren,
             estacionAnterior: mapaEstaciones[tren.idEstacionAnterior],
             estacionSiguiente: mapaEstaciones[tren.idEstacionSiguiente],
             listaEstacionesGlobal: _listaEstacionesEstatica, 
-            entidadComercialNode: nodoComercialAdifReal, // ◄ CONEXIÓN DE RED REQUERIDA ACOPLADA AQUÍ
+            entidadComercialNode: nodoComercialAdifReal,
           );
           break; 
         }
@@ -219,7 +228,6 @@ class _PantallaLineaAjustadaState extends State<PantallaLineaAjustada> {
               
               IncidenciasCintilloWidget(
                 hayIncidenciaReal: _hayIncidenciaReal,
-                // CORRECCIÓN VISUAL: Recortamos el literal largo a la palabra "Incidencias" fija
                 incidenciaTexto: _incidenciaActivaObjeto != null 
                     ? (_hayIncidenciaReal ? "Incidencias" : "Línea R11 operando con normalidad")
                     : "Comprobando alertas...",
@@ -227,7 +235,7 @@ class _PantallaLineaAjustadaState extends State<PantallaLineaAjustada> {
                   if (_incidenciaActivaObjeto != null) {
                     IncidenciasDetalleModal.mostrar(
                       context: context,
-                      incidencia: _incidenciaActivaObjeto!, // Mantiene los párrafos extendidos de Adif intactos
+                      incidencia: _incidenciaActivaObjeto!,
                     );
                   }
                 },

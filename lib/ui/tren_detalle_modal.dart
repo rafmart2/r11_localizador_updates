@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/estacion_model.dart';
 import '../models/tren_model.dart';
 import '../services/itinerario_service.dart';
+import '../services/tren_service.dart';
 
 class TrenDetalleModal {
   static void mostrar({
@@ -34,6 +35,9 @@ class TrenDetalleModal {
           tramoLineaTexto = '${estacionAnterior?.nombre ?? "Origen"} ➔ ${estacionSiguiente?.nombre ?? "Destino"}';
         }
 
+        // Intentamos obtener el nodo comercial si no fue pasado
+        var nodoComercial = entidadComercialNode ?? TrenService.obtenerNodoComercialDelTren(numeroTrenLimpio);
+
         return Padding(
           padding: EdgeInsets.only(
             top: 24.0,
@@ -61,7 +65,7 @@ class TrenDetalleModal {
                       border: Border.all(color: tieneRetraso ? Colors.redAccent : Colors.greenAccent),
                     ),
                     child: Text(
-                      tren.estadoTexto, 
+                      tieneRetraso ? '${tren.retrasoMinutos}min de retraso' : 'En hora', 
                       style: TextStyle(color: tieneRetraso ? Colors.redAccent : Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -69,10 +73,10 @@ class TrenDetalleModal {
               ),
               const SizedBox(height: 6),
 
-              // TRAYECTO GENERAL COMERCIAL
+              // TRAYECTO GENERAL COMERCIAL (Origen ➔ Destino)
               Text(
                 '${tren.origen} ➔ ${tren.destino}',
-                style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.w400),
+                style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500),
               ),
               const Divider(color: Colors.white12, height: 24),
 
@@ -82,17 +86,17 @@ class TrenDetalleModal {
               Text(tramoLineaTexto, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
               const Divider(color: Colors.white12, height: 24),
 
-              // CUENTA ATRÁS Y LISTADO DE ESTACIONES EN TIEMPO REAL
-              const Text('ITINERARIO ESTIMADO (TIEMPO REAL)', style: TextStyle(color: Colors.white30, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1.1)),
+              // RUTA COMPLETA Y PRÓXIMAS PARADAS
+              const Text('RUTA COMPLETA DEL VIAJE', style: TextStyle(color: Colors.white30, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1.1)),
               const SizedBox(height: 12),
               
               // Caja adaptable con scroll nativo para no desbordar pantallas pequeñas
               ConstrainedBox(
                 constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.35,
+                  maxHeight: MediaQuery.of(context).size.height * 0.40,
                 ),
                 child: SingleChildScrollView(
-                  child: _construirListaParadasFuturas(tren, listaEstacionesGlobal, entidadComercialNode),
+                  child: _construirListaRutaCompletaYProximas(tren, listaEstacionesGlobal, nodoComercial),
                 ),
               ),
             ],
@@ -102,7 +106,7 @@ class TrenDetalleModal {
     );
   }
 
-  static Widget _construirListaParadasFuturas(
+  static Widget _construirListaRutaCompletaYProximas(
     Tren tren, 
     List<Estacion> estacionesEstaticas, 
     Map<String, dynamic>? entidadComercial
@@ -111,14 +115,15 @@ class TrenDetalleModal {
       for (var est in estacionesEstaticas) est.id: est.nombre
     };
 
-    final List<Map<String, dynamic>> proximas = ItinerarioService.obtenerProximasParadasReales(
+    // Obtenemos TODAS las paradas del viaje
+    final List<Map<String, dynamic>> todasLasParadas = ItinerarioService.obtenerTodasLasParadas(
       entidadComercial, 
       diccionarioNombres,
     );
 
-    if (proximas.isEmpty) {
+    if (todasLasParadas.isEmpty) {
       return const Text(
-        'Tren aproximándose a la estación terminal o sin paradas comerciales pendientes hoy.', 
+        'No hay información de paradas disponible. El servidor de Adif podría estar sin datos para este tren.', 
         style: TextStyle(color: Colors.white54, fontSize: 12, fontStyle: FontStyle.italic)
       );
     }
@@ -126,24 +131,23 @@ class TrenDetalleModal {
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: proximas.length,
+      itemCount: todasLasParadas.length,
       itemBuilder: (context, index) {
-        final Map<String, dynamic> parada = proximas[index];
+        final Map<String, dynamic> parada = todasLasParadas[index];
         final String horaFormateada = parada['horaTexto'] ?? '--:--';
-        final String paradasRestantes = parada['paradasRestantesText'] ?? 'Próxima parada';
-        final String tiempoRestante = parada['tiempoRestanteText'] ?? 'Llegando';
-        final bool esUltima = index == proximas.length - 1;
+        final bool esParadaPasada = parada['esParadaPasada'] as bool? ?? false;
+        final bool esUltima = index == todasLasParadas.length - 1;
 
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6.0),
+          padding: const EdgeInsets.symmetric(vertical: 5.0),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
                 padding: const EdgeInsets.only(top: 2.0),
                 child: Icon(
-                  esUltima ? Icons.location_on : Icons.radio_button_checked, 
-                  color: esUltima ? Colors.redAccent : Colors.orangeAccent, 
+                  esUltima ? Icons.location_on : (esParadaPasada ? Icons.check_circle : Icons.radio_button_checked), 
+                  color: esUltima ? Colors.redAccent : (esParadaPasada ? Colors.white30 : Colors.orangeAccent), 
                   size: 13,
                 ),
               ),
@@ -155,24 +159,34 @@ class TrenDetalleModal {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(parada['nombre'], style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
                         Text(
-                          horaFormateada, // Hora exacta recalculada de Adif en tiempo real
+                          parada['nombre'], 
                           style: TextStyle(
-                            color: tren.retrasoMinutos > 0 ? Colors.redAccent : Colors.greenAccent, 
+                            color: esParadaPasada ? Colors.white30 : Colors.white, 
                             fontSize: 12, 
+                            fontWeight: FontWeight.bold,
+                            decoration: esParadaPasada ? TextDecoration.lineThrough : null,
+                          ),
+                        ),
+                        Text(
+                          horaFormateada,
+                          style: TextStyle(
+                            color: esParadaPasada ? Colors.white30 : (tren.retrasoMinutos > 0 ? Colors.redAccent : Colors.greenAccent), 
+                            fontSize: 11, 
                             fontWeight: FontWeight.bold, 
                             fontFamily: 'monospace',
+                            decoration: esParadaPasada ? TextDecoration.lineThrough : null,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 2),
-                    // TEXTO DE CUENTA ATRÁS RECALCULADO (ej: Le queda 1 parada • Llegará en 4 min)
-                    Text(
-                      '$paradasRestantes • $tiempoRestante', 
-                      style: const TextStyle(color: Colors.white30, fontSize: 10.5, fontWeight: FontWeight.w400),
-                    ),
+                    if (!esParadaPasada) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'En ${parada['minutosFaltan']} minutos', 
+                        style: const TextStyle(color: Colors.white30, fontSize: 10, fontWeight: FontWeight.w400),
+                      ),
+                    ]
                   ],
                 ),
               ),

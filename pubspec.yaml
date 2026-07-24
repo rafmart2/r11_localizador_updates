@@ -1,7 +1,7 @@
 name: r11_localizador
 description: "localizador de trenes en la linea R11"
 publish_to: 'none'
-version: 0.1.3+2
+version: 0.1.4+3
 
 environment:
   sdk: ^3.12.0

@@ -83,6 +83,33 @@ class TrenService {
       );
     }
   }
+
+  /// Obtiene el nodo comercial (trip_updates) para un tren específico
+  static Map<String, dynamic>? obtenerNodoComercialDelTren(String trenId) {
+    if (mapaTripUpdatesUltimoCiclo.isEmpty) {
+      return null;
+    }
+
+    // Intenta primero con el ID completo
+    if (mapaTripUpdatesUltimoCiclo.containsKey(trenId)) {
+      return mapaTripUpdatesUltimoCiclo[trenId] as Map<String, dynamic>?;
+    }
+
+    // Si no encuentra, intenta con solo el número del tren
+    final String numeroTren = trenId.contains('-') ? trenId.split('-').last : trenId;
+    if (mapaTripUpdatesUltimoCiclo.containsKey(numeroTren)) {
+      return mapaTripUpdatesUltimoCiclo[numeroTren] as Map<String, dynamic>?;
+    }
+
+    // Si sigue sin encontrar, busca en todas las claves por similitud
+    for (var entry in mapaTripUpdatesUltimoCiclo.entries) {
+      if (entry.key.toString().contains(numeroTren)) {
+        return entry.value as Map<String, dynamic>?;
+      }
+    }
+
+    return null;
+  }
 }
 
 /// Contenedor auxiliar de respuesta de tu servicio

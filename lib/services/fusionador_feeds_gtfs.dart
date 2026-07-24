@@ -1,6 +1,7 @@
 import '../models/tren_model.dart';
 import 'cache_flota_persistente.dart';
 import 'extractor_retrasos_service.dart';
+import 'package:flutter/material.dart';
 
 class FusionadorFeedsGtfs {
   // IDENTIFICADORES DE RUTA OFICIALES DE LA GENERALITAT (13 = R11 | 36 = RG1)
@@ -21,6 +22,12 @@ class FusionadorFeedsGtfs {
       final String tripId = (tripNode['trip_id'] ?? tripNode['tripId'] ?? '').toString().trim();
       if (tripId.isNotEmpty) {
         mapaTripUpdates[tripId] = entidad;
+        
+        // Guardamos también por número limpio para coincidencias más fáciles
+        final String numeroLimpio = tripId.replaceAll(RegExp(r'[^0-9]'), '');
+        if (numeroLimpio.isNotEmpty) {
+          mapaTripUpdates[numeroLimpio] = entidad;
+        }
       }
     }
 
@@ -28,6 +35,11 @@ class FusionadorFeedsGtfs {
     final List<dynamic> jsonListaEntidadesPos = jsonPosiciones['entity'] ?? [];
     final List<Tren> trenesFrescosFiltrados = [];
     final DateTime ahora = DateTime.now();
+    
+    int totalTrenes = jsonListaEntidadesPos.length;
+    int trenesR11RG1 = 0;
+    int trenesEnCorredor = 0;
+    int trenesFinales = 0;
     
     // 3. BUCLE MAESTRO DE AUDITORÍA DIRECTA SOBRE EL JSON BRUTO REAL
     for (var entidadPos in jsonListaEntidadesPos) {
@@ -43,13 +55,16 @@ class FusionadorFeedsGtfs {
       final Map<String, dynamic> tripNodeInterno = vehicleNode['trip'] ?? {};
       final String tripIdOficialRaw = (tripNodeInterno['tripId'] ?? tripNodeInterno['trip_id'] ?? idEntidad).toString();
 
+      // ✅ CORRECCIÓN: Acceso directo a vehicle.id y vehicle.label
       final Map<String, dynamic> subVehicleNode = vehicleNode['vehicle'] ?? {};
+      final String vehicleId = (subVehicleNode['id'] ?? '').toString().trim(); // ID directo del vehículo
       final String labelTren = (subVehicleNode['label'] ?? '').toString();
 
       // Normalizamos las cadenas a mayúsculas para el filtrado estricto
       final String idEntidadUpper = idEntidad.toUpperCase();
       final String tripIdUpper = tripIdOficialRaw.toUpperCase().trim();
       final String labelUpper = labelTren.toUpperCase();
+      final String vehicleIdUpper = vehicleId.toUpperCase();
       final String routeIdOficial = (tripNodeInterno['route_id'] ?? tripNodeInterno['routeId'] ?? '').toString().trim();
 
       // =======================================================================
@@ -61,15 +76,23 @@ class FusionadorFeedsGtfs {
                                  tripIdUpper.contains('RG1') ||
                                  labelUpper.contains('R11') || 
                                  labelUpper.contains('RG1') ||
+                                 vehicleIdUpper.contains('R11') ||
+                                 vehicleIdUpper.contains('RG1') ||
                                  _routesR11Girona.contains(routeIdOficial);
 
+      if (esTrenR11oRG1) {
+        trenesR11RG1++;
+      }
+
       // Candado geográfico del pasillo interior del corredor de Girona
-      final bool estaEnViasCorredor = latitudGps >= 41.375 && latitudGps <= 42.45 &&
-                                      longitudGps >= 2.140 && longitudGps <= 3.150;
+      final bool estaEnViasCorredor = latitudGps >= 41.30 && latitudGps <= 42.50 &&
+                                      longitudGps >= 2.10 && longitudGps <= 3.20;
 
       final bool perteneceAlCorredorR11 = esTrenR11oRG1 && estaEnViasCorredor;
 
       if (perteneceAlCorredorR11) {
+        trenesEnCorredor++;
+        
         // Purgamos misiones de talleres o vacíos
         if (labelUpper.contains('VACIO') || labelUpper.contains('MANIOBRA') || labelUpper.contains('TALLER')) {
           continue;
@@ -78,19 +101,20 @@ class FusionadorFeedsGtfs {
         // =======================================================================
         // EXTRACCIÓN DIRECTA DEL NÚMERO DE TREN (id y label de Adif)
         // =======================================================================
-        // Buscamos el número que va detrás del guion en el "id" (ej: VP_R11-15820 -> 15820)
-        // O en el "label" (ej: R11-15820 -> 15820)
-        String numeroTrenTexto = '';
-        if (idEntidad.contains('-')) {
-          numeroTrenTexto = idEntidad.split('-').last;
-        } else if (labelTren.contains('-')) {
-          numeroTrenTexto = labelTren.split('-')[1]; // Captura el bloque central
-        } else {
-          numeroTrenTexto = idEntidad.replaceAll(RegExp(r'[^0-9]'), '');
+        String numeroTrenTexto = vehicleId; // ✅ Usar el ID directo del vehículo primero
+        
+        if (numeroTrenTexto.isEmpty) {
+          if (idEntidad.contains('-')) {
+            numeroTrenTexto = idEntidad.split('-').last;
+          } else if (labelTren.contains('-')) {
+            numeroTrenTexto = labelTren.split('-').last;
+          } else {
+            numeroTrenTexto = idEntidad.replaceAll(RegExp(r'[^0-9]'), '');
+          }
         }
 
         final int? numeroTrenPuro = int.tryParse(numeroTrenTexto.replaceAll(RegExp(r'[^0-9]'), ''));
-        final String tripKey = numeroTrenPuro != null ? numeroTrenPuro.toString() : idEntidad;
+        final String tripKey = numeroTrenPuro != null ? numeroTrenPuro.toString() : numeroTrenTexto;
 
         // =======================================================================
         // DETERMINACIÓN DE SENTIDO DE LA MARCHA EN CORREDOR
@@ -99,10 +123,8 @@ class FusionadorFeedsGtfs {
         
         if (numeroTrenPuro != null) {
           if (numeroTrenPuro == 15820) {
-            // El 15820 es la única excepción de refuerzo: es par pero va al NORTE (Portbou)
             vaHaciaBarcelona = false; 
           } else {
-            // Ley ferroviaria estándar: Tren Par va al Sur (Barcelona), Impar al Norte (Portbou)
             vaHaciaBarcelona = (numeroTrenPuro % 2 == 0); 
           }
         } else {
@@ -120,7 +142,8 @@ class FusionadorFeedsGtfs {
         // =======================================================================
         // SANITIZADOR DE STOP_ID NATIVO DE ADIF
         // =======================================================================
-        String stopIdAdifReal = (vehicleNode['stop_id'] ?? vehicleNode['stopId'] ?? '').toString().trim();
+        // ✅ CORRECCIÓN: Acceso directo a vehicleNode['stopId']
+        String stopIdAdifReal = (vehicleNode['stopId'] ?? vehicleNode['stop_id'] ?? '').toString().trim();
 
         if (stopIdAdifReal.contains('_')) {
           stopIdAdifReal = stopIdAdifReal.split('_').last;
@@ -130,7 +153,7 @@ class FusionadorFeedsGtfs {
           if (stopIdAdifReal.startsWith('07')) {
             stopIdAdifReal = stopIdAdifReal.substring(1);
           } else if (stopIdAdifReal == '03208') {
-            stopIdAdifReal = '79200'; // Maçanet
+            stopIdAdifReal = '79200';
           }
         }
 
@@ -143,6 +166,9 @@ class FusionadorFeedsGtfs {
             stopIdAdifReal = '79600'; 
           }
         }
+
+        // ✅ CORRECCIÓN: Usar currentStatus (camelCase) en lugar de current_status
+        final String currentStatus = (vehicleNode['currentStatus'] ?? vehicleNode['current_status'] ?? 'IN_TRANSIT_TO').toString();
 
         // LLAMADA AL EXTRACTOR DE RETRASOS SEGURO 
         final Map<String, dynamic> datosRetraso = ExtractorRetrasosService.extraerRetrasoReal(
@@ -164,7 +190,7 @@ class FusionadorFeedsGtfs {
             tipo: labelTren.isNotEmpty ? labelTren.split('-').first : 'R11',
             idEstacionAnterior: anteriorAdif,
             idEstacionSiguiente: siguienteAdif, 
-            porcentajeTramo: (vehicleNode['current_status'] ?? vehicleNode['currentStatus']) == 'STOPPED_AT' ? 0.0 : 0.5,
+            porcentajeTramo: currentStatus == 'STOPPED_AT' ? 0.0 : 0.5,
             retrasoMinutos: minutosRetraso,
             latitud: latitudGps,
             longitud: longitudGps,
@@ -175,8 +201,17 @@ class FusionadorFeedsGtfs {
             ultimaActualizacion: ahora,
           ),
         );
+        trenesFinales++;
       }
     }
+
+    // Debug: Imprime estadísticas de filtrado
+    debugPrint('=== ESTADÍSTICAS DE FILTRADO GTFS ===');
+    debugPrint('Total trenes en JSON: $totalTrenes');
+    debugPrint('Trenes R11/RG1 detectados: $trenesR11RG1');
+    debugPrint('Trenes en corredor geográfico: $trenesEnCorredor');
+    debugPrint('Trenes finales mostrados: $trenesFinales');
+    debugPrint('=====================================');
 
     return CacheFlotaPersistente.procesarPersistenciaFlota(trenesFrescosFiltrados);
   }

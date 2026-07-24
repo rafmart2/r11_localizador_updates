@@ -10,8 +10,8 @@ class ItinerarioService {
     'Colera': 166.8, 'Portbou': 167.3, 'Cerbère': 168.7
   };
 
-  /// Extrae el itinerario de paradas futuras reales de Adif y calcula la cuenta atrás
-  static List<Map<String, dynamic>> obtenerProximasParadasReales(
+  /// Obtiene todas las paradas (futuras y pasadas) del viaje completo
+  static List<Map<String, dynamic>> obtenerTodasLasParadas(
     Map<String, dynamic>? entidadComercial, 
     Map<String, String> diccionarioNombresEstaciones
   ) {
@@ -57,11 +57,7 @@ class ItinerarioService {
         final DateTime horaUtc = DateTime.fromMillisecondsSinceEpoch(unixTimestampUtc * 1000, isUtc: true);
         final DateTime horaLocalAdif = horaUtc.toLocal();
 
-        // =======================================================================
-        // BLINDAJE DE CALENDARIO REAL (Sana el vaciado del mes congelado)
-        // =======================================================================
-        // Reconstruimos la fecha forzando el día de hoy en el móvil del usuario, 
-        // absorbiendo únicamente la hora y el minuto real que envía Adif.
+        // Sincronizamos con el día de hoy
         final DateTime horaSincronizadaHoy = DateTime(
           ahoraLocal.year,
           ahoraLocal.month,
@@ -72,9 +68,11 @@ class ItinerarioService {
 
         final String horaFormateada = '${horaSincronizadaHoy.hour.toString().padLeft(2, '0')}:${horaSincronizadaHoy.minute.toString().padLeft(2, '0')}';
         
-        // MATEMÁTICA DE TIEMPO RESTANTE SOBRE EL MISMO DÍA
+        // Matemática de tiempo restante
         final Duration diferencia = horaSincronizadaHoy.difference(ahoraLocal);
         int minutosRestantes = diferencia.inMinutes;
+        
+        final bool esParadaPasada = minutosRestantes < 0;
         if (minutosRestantes < 0) {
           minutosRestantes = 0;
         }
@@ -84,6 +82,7 @@ class ItinerarioService {
           'horaTexto': horaFormateada,
           'minutosFaltan': minutosRestantes,
           'timestamp': unixTimestampUtc,
+          'esParadaPasada': esParadaPasada,
         });
       }
     }
@@ -91,12 +90,30 @@ class ItinerarioService {
     // Ordenamos cronológicamente según la marcha real de Adif
     itinerarioResultado.sort((a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int));
 
-    // INYECCIÓN DINÁMICA DE TEXTOS DE CUENTA ATRÁS CORRELATIVOS
-    for (int i = 0; i < itinerarioResultado.length; i++) {
-      itinerarioResultado[i]['paradasRestantesText'] = 'Le queda ${i + 1} parada${i > 0 ? "s" : ""}';
-      itinerarioResultado[i]['tiempoRestanteText'] = 'Llegará en ${itinerarioResultado[i]['minutosFaltan']} min';
+    return itinerarioResultado;
+  }
+
+  /// Extrae solo el itinerario de paradas futuras reales de Adif y calcula la cuenta atrás
+  static List<Map<String, dynamic>> obtenerProximasParadasReales(
+    Map<String, dynamic>? entidadComercial, 
+    Map<String, String> diccionarioNombresEstaciones
+  ) {
+    final todasLasParadas = obtenerTodasLasParadas(entidadComercial, diccionarioNombresEstaciones);
+
+    // Filtramos solo las paradas futuras
+    final List<Map<String, dynamic>> paradasFuturas = [];
+    for (var parada in todasLasParadas) {
+      if (!(parada['esParadaPasada'] as bool)) {
+        paradasFuturas.add(parada);
+      }
     }
 
-    return itinerarioResultado;
+    // INYECCIÓN DINÁMICA DE TEXTOS DE CUENTA ATRÁS CORRELATIVOS
+    for (int i = 0; i < paradasFuturas.length; i++) {
+      paradasFuturas[i]['paradasRestantesText'] = 'Le queda ${i + 1} parada${i > 0 ? "s" : ""}';
+      paradasFuturas[i]['tiempoRestanteText'] = 'Llegará en ${paradasFuturas[i]['minutosFaltan']} min';
+    }
+
+    return paradasFuturas;
   }
 }
