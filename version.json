@@ -1,5 +1,5 @@
 {
-  "version": "0.1.8",
-  "build_number": 8,
-  "url": "https://github.com/rafmart2/r11_localizador_updates/releases/download/v0.1.8-build8/r11_localizador_v0.1.8.apk"
+  "version": "0.1.9",
+  "build_number": 9,
+  "url": "https://github.com{{ steps.version.outputs.version_name }}-build9/r11_localizador_v0.1.9.apk"
 }
