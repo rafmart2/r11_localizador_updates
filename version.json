@@ -1,5 +1,5 @@
 {
-  "version": "0.1.11",
-  "build_number": 11,
-  "url": "https://github.com{{ steps.version.outputs.version_name }}-build11/r11_localizador_v0.1.11.apk"
+  "version": "0.1.12",
+  "build_number": 12,
+  "url": "https://github.com{{ steps.version.outputs.version_name }}-build12/r11_localizador_v0.1.12.apk"
 }
