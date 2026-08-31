@@ -2,5 +2,24 @@
   "version": "0.1.15",
   "build_number": 15,
   "url": "https://github.com/rafmart2/r11_localizador_updates/releases/download/v0.1.15-build15/r11_localizador_v0.1.15.apk",
-  "changelog": []
+  "changelog": [
+"Añadida creación, edición y borrado de rutas personalizadas",
+"Añadida activación y desactivación de rutas",
+"Mostrar ruta activa y su nombre en la pantalla principal",
+"Actualización automática del estado de la ruta al volver al visor principal",
+"Mejoras en la comprobación de conexiones entre trenes de una ruta",
+"Comprobación automática del tren al introducir 5 dígitos en las rutas",
+"Comprobacion de tren existente en rutas",
+"Autocompletado de estaciones en rutas",
+"Interfaz de rutas más compacta",
+"Mejora en la personalización de tamaños de la interfaz de rutas",
+
+"Corrección en el orden de estaciones en el tablón de horarios",
+"Corrección del filtro de calendario en fines de semana y festivos",
+"comprobacion de rutas cambiado a 5 minutos",
+"Mejora en el cálculo de diferencia de horarios GTFS vs PDF",
+
+"Añadido Changelog en la pantalla de nueva version"
+]
+
 }
